@@ -35,6 +35,7 @@ type build struct {
 
 type step struct {
 	Name    string  `json:"name"`
+	Kind    string  `json:"kind"`
 	Where   string  `json:"where"`
 	Seconds float64 `json:"seconds"`
 }
@@ -108,7 +109,7 @@ func (s *server) workspaces(ctx context.Context) (*workspaces, error) {
 		if x.labels["backend"] == "public-cloud" {
 			where = "aws"
 		}
-		keep(x.labels["exported_namespace"], step{Name: name, Where: where, Seconds: x.value})
+		keep(x.labels["exported_namespace"], step{Name: name, Kind: x.labels["kind"], Where: where, Seconds: x.value})
 	}
 
 	// Tables and buckets already count through their own resource. The roles that
@@ -118,7 +119,7 @@ func (s *server) workspaces(ctx context.Context) (*workspaces, error) {
 		return nil, err
 	}
 	for _, r := range roles {
-		keep(r.labels["exported_namespace"], step{Name: "Access roles", Where: "aws", Seconds: r.value})
+		keep(r.labels["exported_namespace"], step{Name: "Access roles", Kind: "IAMRole", Where: "aws", Seconds: r.value})
 	}
 
 	pods, err := m.query(ctx, `max_over_time(platform_pod_time_to_ready_seconds_instance{exported_namespace=~"guest-.*"}[30d])`)
@@ -129,9 +130,9 @@ func (s *server) workspaces(ctx context.Context) (*workspaces, error) {
 		pod := p.labels["exported_pod"]
 		switch {
 		case strings.Contains(pod, "-api-"):
-			keep(p.labels["exported_namespace"], step{Name: "API running", Where: "app", Seconds: p.value})
+			keep(p.labels["exported_namespace"], step{Name: "API running", Kind: "Api", Where: "app", Seconds: p.value})
 		case strings.Contains(pod, "-spa-"):
-			keep(p.labels["exported_namespace"], step{Name: "Web app running", Where: "app", Seconds: p.value})
+			keep(p.labels["exported_namespace"], step{Name: "Web app running", Kind: "Spa", Where: "app", Seconds: p.value})
 		}
 	}
 

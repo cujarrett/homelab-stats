@@ -71,7 +71,7 @@ func testServer(main, avail, gistURL string) *server {
 func TestClusterRejectsUnknownRange(t *testing.T) {
 	s := testServer("http://unused", "http://unused", "http://unused")
 	rec := httptest.NewRecorder()
-	s.clusterHandler(rec, httptest.NewRequest(http.MethodGet, "/stats/cluster?range=5y", nil))
+	s.clusterHandler(rec, httptest.NewRequest(http.MethodGet, "/stats/cluster?range=1h", nil))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rec.Code)
 	}
@@ -140,8 +140,8 @@ func TestCluster(t *testing.T) {
 	if got.Nodes != (nodeTotals{Ready: 4, Total: 4, Cores: 16, MemoryBytes: 42e9}) || got.Pods != 145 || got.Apps != (appTotals{Synced: 44, Total: 45}) {
 		t.Errorf("totals = %+v pods %d apps %+v", got.Nodes, got.Pods, got.Apps)
 	}
-	if len(got.Timestamps) != 24 || len(got.PodSeries) != 24 {
-		t.Fatalf("1d grid has %d timestamps and %d pod points, want 24", len(got.Timestamps), len(got.PodSeries))
+	if len(got.Timestamps) != 48 || len(got.PodSeries) != 48 {
+		t.Fatalf("1d grid has %d timestamps and %d pod points, want 48", len(got.Timestamps), len(got.PodSeries))
 	}
 	if got.Disk.Read[0] != nil {
 		t.Errorf("NaN disk read should be null, got %v", *got.Disk.Read[0])
@@ -205,8 +205,8 @@ func TestPlatform(t *testing.T) {
 		t.Errorf("build total = %v, want the median workspace at 41", w.Build.TotalSeconds)
 	}
 	want := []step{
-		{"Web app", "pi", 1}, {"Access roles", "aws", 6}, {"NoSQL table", "aws", 14},
-		{"Web app running", "app", 16}, {"API running", "app", 41},
+		{"Web app", "Spa", "pi", 1}, {"Access roles", "IAMRole", "aws", 6}, {"NoSQL table", "NoSql", "aws", 14},
+		{"Web app running", "Spa", "app", 16}, {"API running", "Api", "app", 41},
 	}
 	if fmt.Sprint(w.Build.Steps) != fmt.Sprint(want) {
 		t.Errorf("steps = %v, want %v", w.Build.Steps, want)

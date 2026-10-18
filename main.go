@@ -95,11 +95,11 @@ func writeStats(w http.ResponseWriter, v any) {
 func (s *server) clusterHandler(w http.ResponseWriter, r *http.Request) {
 	key := r.URL.Query().Get("range")
 	if key == "" {
-		key = "1h"
+		key = "1d"
 	}
 	rng, ok := clusterRanges[key]
 	if !ok {
-		writeJSONError(w, "range must be one of 1h, 1d, 1w", http.StatusBadRequest)
+		writeJSONError(w, "range must be one of 1d, 1w, 1m", http.StatusBadRequest)
 		return
 	}
 	v, err := s.cache.get(r.Context(), "cluster-"+key, time.Minute, func(ctx context.Context) (any, error) {

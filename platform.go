@@ -172,7 +172,21 @@ func (s *server) workspaces(ctx context.Context) (*workspaces, error) {
 		}
 		return all[i].ns < all[j].ns
 	})
-	median := all[(len(all)-1)/2]
+	// Only builds with their resource steps recorded can be replayed.
+	// Some early workspaces have pod timings only.
+	var full []ws
+	for _, w := range all {
+		for _, st := range w.steps {
+			if st.Where != "app" {
+				full = append(full, w)
+				break
+			}
+		}
+	}
+	if len(full) == 0 {
+		full = all
+	}
+	median := full[(len(full)-1)/2]
 
 	return &workspaces{
 		Count:          len(all),

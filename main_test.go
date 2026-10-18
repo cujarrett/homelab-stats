@@ -186,6 +186,8 @@ func TestPlatform(t *testing.T) {
 			pod("guest-a", "guest-a-api-7fdc8b59b6-nhrg2", "41"), pod("guest-a", "guest-a-spa-58db8bfcb4-wspfc", "16"),
 			pod("guest-b", "guest-b-api-5b5c97fcd7-rhbs2", "30"),
 			pod("guest-c", "guest-c-api-684cf67b45-6b49x", "50"),
+			// Pod timings only, and the median of all four, so the replay must skip it.
+			pod("guest-d", "guest-d-api-5d478c6578-lpdbh", "40"),
 		}},
 	})
 	defer main.Close()
@@ -201,8 +203,8 @@ func TestPlatform(t *testing.T) {
 		t.Errorf("running = %+v, want 20 with Api 10 after the GraphApi dedupe", got.Running)
 	}
 	w := got.Workspaces
-	if w == nil || w.Count != 3 || w.AverageSeconds != 40.3 {
-		t.Fatalf("workspaces = %+v, want 3 averaging (41+30+50)/3", w)
+	if w == nil || w.Count != 4 || w.AverageSeconds != 40.3 {
+		t.Fatalf("workspaces = %+v, want 4 averaging (41+30+50+40)/4", w)
 	}
 	if w.Build.TotalSeconds != 41 {
 		t.Errorf("build total = %v, want the median workspace at 41", w.Build.TotalSeconds)

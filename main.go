@@ -79,9 +79,9 @@ type server struct {
 	now          func() time.Time
 }
 
-// Every response is public and identical for every caller, so Cloudflare may
-// hold it for the same minute this process does.
-func writeStats(w http.ResponseWriter, v any) {
+// Cache-Control: public and identical for every caller, so Cloudflare may hold it for a minute.
+// Last-Modified: when the numbers were read from their source, so the site shows their real age.
+func writeStats(w http.ResponseWriter, v any, at time.Time) {
 	body, err := json.Marshal(v)
 	if err != nil {
 		writeJSONError(w, "stats are unavailable right now", http.StatusInternalServerError)
@@ -89,6 +89,7 @@ func writeStats(w http.ResponseWriter, v any) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age=60")
+	w.Header().Set("Last-Modified", at.UTC().Format(http.TimeFormat))
 	w.Write(body) //nolint:errcheck
 }
 
@@ -102,7 +103,7 @@ func (s *server) clusterHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, "range must be one of 1d, 1w, 1m", http.StatusBadRequest)
 		return
 	}
-	v, err := s.cache.get(r.Context(), "cluster-"+key, time.Minute, func(ctx context.Context) (any, error) {
+	v, at, err := s.cache.getAt(r.Context(), "cluster-"+key, time.Minute, func(ctx context.Context) (any, error) {
 		return s.cluster(ctx, key, rng)
 	})
 	if err != nil {
@@ -110,28 +111,28 @@ func (s *server) clusterHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, "stats are unavailable right now", http.StatusBadGateway)
 		return
 	}
-	writeStats(w, v)
+	writeStats(w, v, at)
 }
 
 func (s *server) platformHandler(w http.ResponseWriter, r *http.Request) {
-	v, err := s.cache.get(r.Context(), "platform", 5*time.Minute, s.platform)
+	v, at, err := s.cache.getAt(r.Context(), "platform", 5*time.Minute, s.platform)
 	if err != nil {
 		slog.Error("platform stats", "err", err)
 		writeJSONError(w, "stats are unavailable right now", http.StatusBadGateway)
 		return
 	}
-	writeStats(w, v)
+	writeStats(w, v, at)
 }
 
 func (s *server) automergeHandler(w http.ResponseWriter, r *http.Request) {
 	// The gist changes at most hourly, and GitHub allows 60 unauthenticated reads an hour.
-	v, err := s.cache.get(r.Context(), "automerge", 10*time.Minute, s.gist.automerge)
+	v, at, err := s.cache.getAt(r.Context(), "automerge", 10*time.Minute, s.gist.automerge)
 	if err != nil {
 		slog.Error("automerge stats", "err", err)
 		writeJSONError(w, "stats are unavailable right now", http.StatusBadGateway)
 		return
 	}
-	writeStats(w, v)
+	writeStats(w, v, at)
 }
 
 func healthHandler(w http.ResponseWriter, _ *http.Request) {

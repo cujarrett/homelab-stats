@@ -38,25 +38,30 @@ func (c *cache) entry(key string) *cacheEntry {
 	return e
 }
 
-// get returns the cached value while it is younger than ttl, otherwise rebuilds it.
+func (c *cache) get(ctx context.Context, key string, ttl time.Duration, build func(context.Context) (any, error)) (any, error) {
+	v, _, err := c.getAt(ctx, key, ttl, build)
+	return v, err
+}
+
+// getAt returns the cached value and when it was built, rebuilding it once older than ttl.
 // A failed rebuild serves the last good value, because slightly old numbers beat
 // an empty section when Prometheus restarts.
-func (c *cache) get(ctx context.Context, key string, ttl time.Duration, build func(context.Context) (any, error)) (any, error) {
+func (c *cache) getAt(ctx context.Context, key string, ttl time.Duration, build func(context.Context) (any, error)) (any, time.Time, error) {
 	e := c.entry(key)
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	if e.ok && c.now().Sub(e.at) < ttl {
-		return e.value, nil
+		return e.value, e.at, nil
 	}
 	v, err := build(ctx)
 	if err == nil {
 		e.value, e.at, e.ok = v, c.now(), true
-		return v, nil
+		return v, e.at, nil
 	}
 	if e.ok {
 		slog.Warn("serving stale stats", "key", key, "age", c.now().Sub(e.at).String(), "err", err)
-		return e.value, nil
+		return e.value, e.at, nil
 	}
-	return nil, err
+	return nil, time.Time{}, err
 }

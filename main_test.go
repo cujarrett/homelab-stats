@@ -119,6 +119,9 @@ func TestCluster(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body %s", rec.Code, rec.Body)
 	}
+	if rec.Header().Get("Last-Modified") == "" {
+		t.Error("Last-Modified is missing")
+	}
 	if got := rec.Header().Get("Cache-Control"); got != "public, max-age=60" {
 		t.Errorf("Cache-Control = %q", got)
 	}

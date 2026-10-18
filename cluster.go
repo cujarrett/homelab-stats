@@ -15,11 +15,11 @@ type clusterRange struct {
 }
 
 // About 50 points per range, so each sparkline has the same amount of detail.
-// 1m stops at 30 days, the main Prometheus retention.
+// 30d is as far back as the main Prometheus keeps.
 var clusterRanges = map[string]clusterRange{
-	"1d": {span: 24 * time.Hour, step: 30 * time.Minute, window: 30 * time.Minute},
-	"1w": {span: 7 * 24 * time.Hour, step: 3 * time.Hour, window: 3 * time.Hour},
-	"1m": {span: 30 * 24 * time.Hour, step: 12 * time.Hour, window: 12 * time.Hour},
+	"1d":  {span: 24 * time.Hour, step: 30 * time.Minute, window: 30 * time.Minute},
+	"7d":  {span: 7 * 24 * time.Hour, step: 3 * time.Hour, window: 3 * time.Hour},
+	"30d": {span: 30 * 24 * time.Hour, step: 12 * time.Hour, window: 12 * time.Hour},
 }
 
 type clusterStats struct {

@@ -26,7 +26,7 @@ The site reaches these at `https://mattjarrett.dev/api/stats/...`. Its nginx for
 | Method | Path | Cached | Description |
 |---|---|---|---|
 | `GET` | `/healthz` | | Readiness probe |
-| `GET` | `/stats/cluster?range=1d\|1w\|1m` | 1 min | Availability, outage dates, node, pod and app totals, CPU and memory per node, network and disk throughput |
+| `GET` | `/stats/cluster?range=1d\|7d\|30d` | 1 min | Availability, outage dates, node, pod and app totals, CPU and memory per node, network and disk throughput |
 | `GET` | `/stats/platform` | 5 min | Platform resources running by type, and Launchpad workspace build times over 30 days |
 | `GET` | `/stats/automerge` | 10 min | Dependency PR merges per day, automatic and by hand, from 30 days before automerge went live |
 

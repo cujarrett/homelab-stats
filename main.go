@@ -100,7 +100,7 @@ func (s *server) clusterHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	rng, ok := clusterRanges[key]
 	if !ok {
-		writeJSONError(w, "range must be one of 1d, 1w, 1m", http.StatusBadRequest)
+		writeJSONError(w, "range must be one of 1d, 7d, 30d", http.StatusBadRequest)
 		return
 	}
 	v, at, err := s.cache.getAt(r.Context(), "cluster-"+key, time.Minute, func(ctx context.Context) (any, error) {

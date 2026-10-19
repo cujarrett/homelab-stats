@@ -26,8 +26,10 @@ run:
 dev:
     #!/usr/bin/env bash
     set -euo pipefail
-    kubectl port-forward -n monitoring svc/monitoring-kube-prometheus-prometheus 19090:9090 >/dev/null &
-    kubectl port-forward -n monitoring svc/prometheus-cluster-availability 19091:9090 >/dev/null &
-    trap 'kill $(jobs -p)' EXIT
+    # kubectl port-forward drops after a while, so each one restarts itself.
+    forward() { while true; do kubectl port-forward -n monitoring "svc/$1" "$2:9090" >/dev/null 2>&1; sleep 1; done; }
+    forward monitoring-kube-prometheus-prometheus 19090 &
+    forward prometheus-cluster-availability 19091 &
+    trap 'kill 0' EXIT
     sleep 2
     PORT=18080 PROMETHEUS_URL=http://localhost:19090 AVAILABILITY_PROMETHEUS_URL=http://localhost:19091 go run .

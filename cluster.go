@@ -54,6 +54,7 @@ type nodeStat struct {
 	Role         string     `json:"role"`
 	MemoryBytes  float64    `json:"memoryBytes"`
 	TemperatureC *float64   `json:"temperatureC"`
+	Temperature  []*float64 `json:"temperature"`
 	CPU          []*float64 `json:"cpu"`
 	Memory       []*float64 `json:"memory"`
 }
@@ -188,6 +189,14 @@ func (s *server) perNode(ctx context.Context, start, end time.Time, rng clusterR
 	for _, sm := range temps {
 		t := round2(sm.value)
 		node(sm.labels["nodename"]).TemperatureC = &t
+	}
+	// The history behind the number, so a chart cursor can read it at any point in the range.
+	tempHistory, err := m.queryRange(ctx, `max by (nodename)(node_hwmon_temp_celsius `+byNode+`)`, start, end, rng.step)
+	if err != nil {
+		return nil, err
+	}
+	for _, sr := range tempHistory {
+		node(sr.labels["nodename"]).Temperature = onGrid(sr, grid)
 	}
 	roles, err := m.query(ctx, `kube_node_role{role="control-plane"}`)
 	if err != nil {

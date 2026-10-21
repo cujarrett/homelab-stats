@@ -162,7 +162,8 @@ func (s *server) workspaces(ctx context.Context) (*workspaces, error) {
 		sum += w.total
 	}
 
-	// The replay shows the median build, so it is typical rather than the best case.
+	// The replay shows the median build among those with the most resource kinds, so it is
+	// typical in time and shows the whole stack (SQL, buckets) when any workspace had it.
 	sort.Slice(all, func(i, j int) bool {
 		if all[i].total != all[j].total {
 			return all[i].total < all[j].total
@@ -186,7 +187,17 @@ func (s *server) workspaces(ctx context.Context) (*workspaces, error) {
 	if len(full) == 0 {
 		full = all
 	}
-	median := full[(len(full)-1)/2]
+	widest := 0
+	for _, w := range full {
+		widest = max(widest, len(w.steps))
+	}
+	var wide []ws
+	for _, w := range full {
+		if len(w.steps) == widest {
+			wide = append(wide, w)
+		}
+	}
+	median := wide[(len(wide)-1)/2]
 
 	return &workspaces{
 		Count:          len(all),

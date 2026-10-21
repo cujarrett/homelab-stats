@@ -155,6 +155,9 @@ func TestCluster(t *testing.T) {
 	if len(got.PerNode) != 2 || got.PerNode[0].Name != "ctrl-1" || got.PerNode[0].Role != "control-plane" || got.PerNode[1].Role != "worker" {
 		t.Fatalf("per node = %+v", got.PerNode)
 	}
+	if len(got.PerNode[1].Temperature) != 48 || *got.PerNode[1].Temperature[0] != 41.46 {
+		t.Errorf("work-1 temperature series = %v, want 48 points starting at 41.46", got.PerNode[1].Temperature)
+	}
 	if *got.PerNode[1].CPU[0] != 12.35 || *got.PerNode[1].TemperatureC != 41.46 {
 		t.Errorf("work-1 cpu %v temp %v, want values rounded to 2 places", *got.PerNode[1].CPU[0], *got.PerNode[1].TemperatureC)
 	}
@@ -183,7 +186,8 @@ func TestPlatform(t *testing.T) {
 			{labels: map[string]string{"exported_namespace": "guest-a", "kind": "IAMRole"}, value: "6"},
 		}},
 		{`platform_pod_time_to_ready_seconds_instance`, []promResult{
-			pod("guest-a", "guest-a-api-7fdc8b59b6-nhrg2", "41"), pod("guest-a", "guest-a-spa-58db8bfcb4-wspfc", "16"),
+			// guest-a has the most steps but is the slowest, so only the widest-build rule picks it.
+			pod("guest-a", "guest-a-api-7fdc8b59b6-nhrg2", "55"), pod("guest-a", "guest-a-spa-58db8bfcb4-wspfc", "16"),
 			pod("guest-b", "guest-b-api-5b5c97fcd7-rhbs2", "30"),
 			pod("guest-c", "guest-c-api-684cf67b45-6b49x", "50"),
 			// Pod timings only, and the median of all four, so the replay must skip it.
@@ -203,15 +207,15 @@ func TestPlatform(t *testing.T) {
 		t.Errorf("running = %+v, want 20 with Api 10 after the GraphApi dedupe", got.Running)
 	}
 	w := got.Workspaces
-	if w == nil || w.Count != 4 || w.AverageSeconds != 40.3 {
-		t.Fatalf("workspaces = %+v, want 4 averaging (41+30+50+40)/4", w)
+	if w == nil || w.Count != 4 || w.AverageSeconds != 43.8 {
+		t.Fatalf("workspaces = %+v, want 4 averaging (55+30+50+40)/4", w)
 	}
-	if w.Build.TotalSeconds != 41 {
-		t.Errorf("build total = %v, want the median workspace at 41", w.Build.TotalSeconds)
+	if w.Build.TotalSeconds != 55 {
+		t.Errorf("build total = %v, want the widest workspace at 55", w.Build.TotalSeconds)
 	}
 	want := []step{
 		{"Web app", "Spa", "pi", 1}, {"Access roles", "IAMRole", "aws", 6}, {"NoSQL table", "NoSql", "aws", 14},
-		{"Web app running", "Spa", "app", 16}, {"API running", "Api", "app", 41},
+		{"Web app running", "Spa", "app", 16}, {"API running", "Api", "app", 55},
 	}
 	if fmt.Sprint(w.Build.Steps) != fmt.Sprint(want) {
 		t.Errorf("steps = %v, want %v", w.Build.Steps, want)

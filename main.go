@@ -35,6 +35,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthHandler)
+	mux.HandleFunc("GET /metrics", metricsHandler)
 	mux.HandleFunc("GET /stats/cluster", s.clusterHandler)
 	mux.HandleFunc("GET /stats/platform", s.platformHandler)
 	mux.HandleFunc("GET /stats/automerge", s.automergeHandler)
@@ -42,7 +43,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           mux,
+		Handler:           countRequests(mux, mux),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

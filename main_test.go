@@ -269,3 +269,12 @@ func TestCacheServesStaleOnError(t *testing.T) {
 		t.Error("a key with nothing cached should return the error")
 	}
 }
+
+func TestMetricsEndpoint(t *testing.T) {
+	countStale("cluster-1d")
+	rec := httptest.NewRecorder()
+	metricsHandler(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if !strings.Contains(rec.Body.String(), `homelab_stats_stale_served_total{key="cluster-1d"}`) {
+		t.Fatalf("missing stale counter: %s", rec.Body.String())
+	}
+}

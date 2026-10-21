@@ -60,6 +60,7 @@ func (c *cache) getAt(ctx context.Context, key string, ttl time.Duration, build 
 		return v, e.at, nil
 	}
 	if e.ok {
+		countStale(key)
 		slog.Warn("serving stale stats", "key", key, "age", c.now().Sub(e.at).String(), "err", err)
 		return e.value, e.at, nil
 	}

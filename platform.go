@@ -47,6 +47,7 @@ var stepNames = map[string]string{
 	"Api":           "API",
 	"ObjectStorage": "Storage bucket",
 	"NoSql":         "NoSQL table",
+	"Workflow":      "Workflow space",
 }
 
 func (s *server) platform(ctx context.Context) (any, error) {

@@ -180,10 +180,20 @@ func TestPlatform(t *testing.T) {
 			xr("guest-a", "Spa", "private-cloud", "1"), xr("guest-a", "NoSql", "public-cloud", "14"),
 			xr("guest-b", "Spa", "private-cloud", "2"),
 			xr("guest-c", "Cache", "private-cloud", "0"),
+			xr("guest-e", "Workflow", "private-cloud", "1"), xr("guest-e", "Api", "private-cloud", "4"),
+			xr("guest-f", "Workflow", "private-cloud", "1"), xr("guest-f", "Api", "private-cloud", "3"),
+			// A reused name with an older web app in it is not a Workflow build.
+			xr("guest-g", "Workflow", "private-cloud", "1"), xr("guest-g", "Spa", "private-cloud", "2"),
+			// The widest of all, but mixed with a Workflow build, so it is never the replay.
+			xr("guest-h", "Spa", "private-cloud", "1"), xr("guest-h", "NoSql", "public-cloud", "9"),
+			xr("guest-h", "Workflow", "private-cloud", "1"), xr("guest-h", "Cache", "private-cloud", "3"),
+			xr("guest-h", "Sql", "private-cloud", "20"),
 		}},
 		{`platform_managed_time_to_ready_seconds_instance`, []promResult{
 			{labels: map[string]string{"exported_namespace": "guest-a", "kind": "IAMRole"}, value: "5"},
 			{labels: map[string]string{"exported_namespace": "guest-a", "kind": "IAMRole"}, value: "6"},
+			{labels: map[string]string{"exported_namespace": "guest-e", "kind": "EntraApplication"}, value: "5"},
+			{labels: map[string]string{"exported_namespace": "guest-e", "kind": "EntraRoleAssignment"}, value: "18"},
 		}},
 		{`platform_pod_time_to_ready_seconds_instance`, []promResult{
 			// guest-a has the most steps but is the slowest, so only the widest-build rule picks it.
@@ -192,6 +202,9 @@ func TestPlatform(t *testing.T) {
 			pod("guest-c", "guest-c-api-684cf67b45-6b49x", "50"),
 			// Pod timings only, and the median of all four, so the replay must skip it.
 			pod("guest-d", "guest-d-api-5d478c6578-lpdbh", "40"),
+			pod("guest-e", "guest-e-api-6b8fc89578-t5mjj", "34"),
+			pod("guest-f", "guest-f-api-7bf58ccb7d-fsx48", "40"),
+			pod("guest-h", "guest-h-api-5d478c6578-abcde", "50"),
 		}},
 	})
 	defer main.Close()
@@ -207,8 +220,8 @@ func TestPlatform(t *testing.T) {
 		t.Errorf("running = %+v, want 20 with Api 10 after the GraphApi dedupe", got.Running)
 	}
 	w := got.Workspaces
-	if w == nil || w.Count != 4 || w.AverageSeconds != 43.8 {
-		t.Fatalf("workspaces = %+v, want 4 averaging (55+30+50+40)/4", w)
+	if w == nil || w.Count != 8 || w.AverageSeconds != 37.6 {
+		t.Fatalf("workspaces = %+v, want 8 averaging (55+30+50+40+34+40+2+50)/8", w)
 	}
 	if w.Build.TotalSeconds != 55 {
 		t.Errorf("build total = %v, want the widest workspace at 55", w.Build.TotalSeconds)
@@ -219,6 +232,10 @@ func TestPlatform(t *testing.T) {
 	}
 	if fmt.Sprint(w.Build.Steps) != fmt.Sprint(want) {
 		t.Errorf("steps = %v, want %v", w.Build.Steps, want)
+	}
+	wantFlow := []step{{"Durable workflow", "Workflow", "pi", 1}, {"API", "Api", "pi", 4}, {"Entra app", "EntraApp", "entra", 18}, {"API running", "Api", "app", 34}}
+	if w.WorkflowBuild == nil || fmt.Sprint(w.WorkflowBuild.Steps) != fmt.Sprint(wantFlow) {
+		t.Errorf("workflow build = %+v, want guest-e's %v", w.WorkflowBuild, wantFlow)
 	}
 	body, _ := json.Marshal(got)
 	if strings.Contains(string(body), "guest-") {

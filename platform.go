@@ -26,6 +26,8 @@ type workspaces struct {
 	Count          int     `json:"count"`
 	AverageSeconds float64 `json:"averageSeconds"`
 	Build          build   `json:"build"`
+	// A typical Workflow sandbox build. It has too few parts to ever be the widest build.
+	WorkflowBuild *build `json:"workflowBuild,omitempty"`
 }
 
 type build struct {
@@ -47,7 +49,7 @@ var stepNames = map[string]string{
 	"Api":           "API",
 	"ObjectStorage": "Storage bucket",
 	"NoSql":         "NoSQL table",
-	"Workflow":      "Workflow space",
+	"Workflow":      "Durable workflow",
 }
 
 func (s *server) platform(ctx context.Context) (any, error) {
@@ -113,14 +115,21 @@ func (s *server) workspaces(ctx context.Context) (*workspaces, error) {
 		keep(x.labels["exported_namespace"], step{Name: name, Kind: x.labels["kind"], Where: where, Seconds: x.value})
 	}
 
-	// Tables and buckets already count through their own resource. The roles that
-	// grant the API access to them have no resource of their own, so they count here.
-	roles, err := m.query(ctx, `max_over_time(platform_managed_time_to_ready_seconds_instance{exported_namespace=~"guest-.*",kind="IAMRole"}[30d])`)
+	// Identity has no resource of its own, so it counts here.
+	// IAMRole: the AWS roles that grant the API its table and bucket.
+	// Entra*: the Entra app a workflow's API signs in with, ready once its last part is.
+	ids, err := m.query(ctx, `max_over_time(platform_managed_time_to_ready_seconds_instance{exported_namespace=~"guest-.*",kind=~"IAMRole|Entra.*"}[30d])`)
 	if err != nil {
 		return nil, err
 	}
-	for _, r := range roles {
-		keep(r.labels["exported_namespace"], step{Name: "Access roles", Kind: "IAMRole", Where: "aws", Seconds: r.value})
+	for _, r := range ids {
+		ns := r.labels["exported_namespace"]
+		switch kind := r.labels["kind"]; {
+		case kind == "IAMRole":
+			keep(ns, step{Name: "Access roles", Kind: "IAMRole", Where: "aws", Seconds: r.value})
+		case strings.HasPrefix(kind, "Entra"):
+			keep(ns, step{Name: "Entra app", Kind: "EntraApp", Where: "entra", Seconds: r.value})
+		}
 	}
 
 	pods, err := m.query(ctx, `max_over_time(platform_pod_time_to_ready_seconds_instance{exported_namespace=~"guest-.*"}[30d])`)
@@ -176,13 +185,18 @@ func (s *server) workspaces(ctx context.Context) (*workspaces, error) {
 	})
 	// Only builds with their resource steps recorded can be replayed.
 	// Some early workspaces have pod timings only.
+	// A Workflow build never counts here, nor does anything with an Entra app, which only
+	// Workflow builds have. A reused sandbox name can mix one with an older build, and the
+	// extra steps would make that mix look like the widest build.
 	var full []ws
 	for _, w := range all {
+		hasResource, hasWorkflow := false, false
 		for _, st := range w.steps {
-			if st.Where != "app" {
-				full = append(full, w)
-				break
-			}
+			hasResource = hasResource || st.Where != "app"
+			hasWorkflow = hasWorkflow || st.Kind == "Workflow" || st.Kind == "EntraApp"
+		}
+		if hasResource && !hasWorkflow {
+			full = append(full, w)
 		}
 	}
 	if len(full) == 0 {
@@ -200,9 +214,29 @@ func (s *server) workspaces(ctx context.Context) (*workspaces, error) {
 	}
 	median := wide[(len(wide)-1)/2]
 
-	return &workspaces{
+	out := &workspaces{
 		Count:          len(all),
 		AverageSeconds: math.Round(sum/float64(len(all))*10) / 10,
 		Build:          build{TotalSeconds: median.total, Steps: median.steps},
-	}, nil
+	}
+
+	// Sandbox names get reused, so a namespace can hold steps from an older, different build.
+	// Only one made of a Workflow and its API alone counts as a Workflow build.
+	workflowOnly := map[string]bool{"Durable workflow": true, "Entra app": true, "API": true, "API running": true}
+	var flows []ws
+	for _, w := range all {
+		hasWorkflow, pure := false, true
+		for _, st := range w.steps {
+			hasWorkflow = hasWorkflow || st.Kind == "Workflow"
+			pure = pure && workflowOnly[st.Name]
+		}
+		if hasWorkflow && pure {
+			flows = append(flows, w)
+		}
+	}
+	if len(flows) > 0 {
+		f := flows[(len(flows)-1)/2]
+		out.WorkflowBuild = &build{TotalSeconds: f.total, Steps: f.steps}
+	}
+	return out, nil
 }

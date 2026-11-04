@@ -26,7 +26,7 @@ type workspaces struct {
 	Count          int     `json:"count"`
 	AverageSeconds float64 `json:"averageSeconds"`
 	Build          build   `json:"build"`
-	// A typical Workflow sandbox build. It has too few parts to ever be the widest build.
+	// A typical WorkflowSpace sandbox build. It has too few parts to ever be the widest build.
 	WorkflowBuild *build `json:"workflowBuild,omitempty"`
 }
 
@@ -49,7 +49,7 @@ var stepNames = map[string]string{
 	"Api":           "API",
 	"ObjectStorage": "Storage bucket",
 	"NoSql":         "NoSQL table",
-	"Workflow":      "Durable workflow",
+	"WorkflowSpace": "Durable workflow",
 }
 
 func (s *server) platform(ctx context.Context) (any, error) {
@@ -104,15 +104,16 @@ func (s *server) workspaces(ctx context.Context) (*workspaces, error) {
 		return nil, err
 	}
 	for _, x := range xrs {
-		name := stepNames[x.labels["kind"]]
+		kind := x.labels["kind"]
+		name := stepNames[kind]
 		if name == "" {
-			name = x.labels["kind"]
+			name = kind
 		}
 		where := "pi"
 		if x.labels["backend"] == "public-cloud" {
 			where = "aws"
 		}
-		keep(x.labels["exported_namespace"], step{Name: name, Kind: x.labels["kind"], Where: where, Seconds: x.value})
+		keep(x.labels["exported_namespace"], step{Name: name, Kind: kind, Where: where, Seconds: x.value})
 	}
 
 	// Identity has no resource of its own, so it counts here.
@@ -185,15 +186,15 @@ func (s *server) workspaces(ctx context.Context) (*workspaces, error) {
 	})
 	// Only builds with their resource steps recorded can be replayed.
 	// Some early workspaces have pod timings only.
-	// A Workflow build never counts here, nor does anything with an Entra app, which only
-	// Workflow builds have. A reused sandbox name can mix one with an older build, and the
+	// A WorkflowSpace build never counts here, nor does anything with an Entra app, which only
+	// WorkflowSpace builds have. A reused sandbox name can mix one with an older build, and the
 	// extra steps would make that mix look like the widest build.
 	var full []ws
 	for _, w := range all {
 		hasResource, hasWorkflow := false, false
 		for _, st := range w.steps {
 			hasResource = hasResource || st.Where != "app"
-			hasWorkflow = hasWorkflow || st.Kind == "Workflow" || st.Kind == "EntraApp"
+			hasWorkflow = hasWorkflow || st.Kind == "WorkflowSpace" || st.Kind == "EntraApp"
 		}
 		if hasResource && !hasWorkflow {
 			full = append(full, w)
@@ -221,13 +222,13 @@ func (s *server) workspaces(ctx context.Context) (*workspaces, error) {
 	}
 
 	// Sandbox names get reused, so a namespace can hold steps from an older, different build.
-	// Only one made of a Workflow and its API alone counts as a Workflow build.
+	// Only one made of a WorkflowSpace and its API alone counts as a WorkflowSpace build.
 	workflowOnly := map[string]bool{"Durable workflow": true, "Entra app": true, "API": true, "API running": true}
 	var flows []ws
 	for _, w := range all {
 		hasWorkflow, pure := false, true
 		for _, st := range w.steps {
-			hasWorkflow = hasWorkflow || st.Kind == "Workflow"
+			hasWorkflow = hasWorkflow || st.Kind == "WorkflowSpace"
 			pure = pure && workflowOnly[st.Name]
 		}
 		if hasWorkflow && pure {

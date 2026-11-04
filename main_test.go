@@ -180,13 +180,13 @@ func TestPlatform(t *testing.T) {
 			xr("guest-a", "Spa", "private-cloud", "1"), xr("guest-a", "NoSql", "public-cloud", "14"),
 			xr("guest-b", "Spa", "private-cloud", "2"),
 			xr("guest-c", "Cache", "private-cloud", "0"),
-			xr("guest-e", "Workflow", "private-cloud", "1"), xr("guest-e", "Api", "private-cloud", "4"),
-			xr("guest-f", "Workflow", "private-cloud", "1"), xr("guest-f", "Api", "private-cloud", "3"),
-			// A reused name with an older web app in it is not a Workflow build.
-			xr("guest-g", "Workflow", "private-cloud", "1"), xr("guest-g", "Spa", "private-cloud", "2"),
-			// The widest of all, but mixed with a Workflow build, so it is never the replay.
+			xr("guest-e", "WorkflowSpace", "private-cloud", "1"), xr("guest-e", "Api", "private-cloud", "4"),
+			xr("guest-f", "WorkflowSpace", "private-cloud", "1"), xr("guest-f", "Api", "private-cloud", "3"),
+			// A reused name with an older web app in it is not a WorkflowSpace build.
+			xr("guest-g", "WorkflowSpace", "private-cloud", "1"), xr("guest-g", "Spa", "private-cloud", "2"),
+			// The widest of all, but mixed with a WorkflowSpace build, so it is never the replay.
 			xr("guest-h", "Spa", "private-cloud", "1"), xr("guest-h", "NoSql", "public-cloud", "9"),
-			xr("guest-h", "Workflow", "private-cloud", "1"), xr("guest-h", "Cache", "private-cloud", "3"),
+			xr("guest-h", "WorkflowSpace", "private-cloud", "1"), xr("guest-h", "Cache", "private-cloud", "3"),
 			xr("guest-h", "Sql", "private-cloud", "20"),
 		}},
 		{`platform_managed_time_to_ready_seconds_instance`, []promResult{
@@ -233,7 +233,7 @@ func TestPlatform(t *testing.T) {
 	if fmt.Sprint(w.Build.Steps) != fmt.Sprint(want) {
 		t.Errorf("steps = %v, want %v", w.Build.Steps, want)
 	}
-	wantFlow := []step{{"Durable workflow", "Workflow", "pi", 1}, {"API", "Api", "pi", 4}, {"Entra app", "EntraApp", "entra", 18}, {"API running", "Api", "app", 34}}
+	wantFlow := []step{{"Durable workflow", "WorkflowSpace", "pi", 1}, {"API", "Api", "pi", 4}, {"Entra app", "EntraApp", "entra", 18}, {"API running", "Api", "app", 34}}
 	if w.WorkflowBuild == nil || fmt.Sprint(w.WorkflowBuild.Steps) != fmt.Sprint(wantFlow) {
 		t.Errorf("workflow build = %+v, want guest-e's %v", w.WorkflowBuild, wantFlow)
 	}

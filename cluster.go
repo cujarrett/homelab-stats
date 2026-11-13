@@ -161,7 +161,8 @@ func (s *server) perNode(ctx context.Context, start, end time.Time, rng clusterR
 		return nodes[name]
 	}
 
-	cpu, err := m.queryRange(ctx, `100 * (1 - avg by (nodename)(rate(node_cpu_seconds_total{mode="idle"}[`+w+`]) `+byNode+`))`, start, end, rng.step)
+	// A counter swapped between two hosts reads as a huge jump, so rate can leave 0 to 100.
+	cpu, err := m.queryRange(ctx, `clamp(100 * (1 - avg by (nodename)(rate(node_cpu_seconds_total{mode="idle"}[`+w+`]) `+byNode+`)), 0, 100)`, start, end, rng.step)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +241,8 @@ func (s *server) availabilityStats(ctx context.Context) (availabilityStats, erro
 		d := time.Unix(int64(ts), 0).In(chicago).Format("2006-01-02")
 		return &d, nil
 	}
-	if out.LastPower, err = day(`max_over_time((timestamp(count(up{job="node-exporter"} == 1) < 3))[90d:30s])`); err != nil {
+	// Two samples in a row, matching availabilityUp. One node down plus one missed scrape is not a power cut.
+	if out.LastPower, err = day(`max_over_time((timestamp((count(up{job="node-exporter"} == 1) < 3) and (count(up{job="node-exporter"} offset 30s == 1) < 3)))[90d:30s])`); err != nil {
 		return out, err
 	}
 	out.LastInternet, err = day(`max_over_time((timestamp(max(probe_success{probe_group="internet"}) == 0))[90d:30s])`)

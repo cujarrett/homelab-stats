@@ -239,5 +239,38 @@ func (s *server) workspaces(ctx context.Context) (*workspaces, error) {
 		f := flows[(len(flows)-1)/2]
 		out.WorkflowBuild = &build{TotalSeconds: f.total, Steps: f.steps}
 	}
+
+	// Launchpad times each build from the guest's Build click to the whole demo ready.
+	ready, err := m.query(ctx, `max_over_time(launchpad_guest_ready_seconds[30d])`)
+	if err != nil {
+		return nil, err
+	}
+	byDemo := map[string][]float64{}
+	for _, r := range ready {
+		byDemo[r.labels["demo"]] = append(byDemo[r.labels["demo"]], r.value)
+	}
+	shiftToClick(&out.Build, byDemo["api"])
+	if out.WorkflowBuild != nil {
+		shiftToClick(out.WorkflowBuild, byDemo["workflow"])
+	}
 	return out, nil
+}
+
+// shiftToClick moves a build onto the clock a guest sees.
+// Each step is timed from its own resource, which Git and the sync create after the click.
+// Adding the typical gap makes the last step the median click-to-ready time.
+func shiftToClick(b *build, clickToReady []float64) {
+	if len(clickToReady) == 0 {
+		return
+	}
+	sort.Float64s(clickToReady)
+	median := clickToReady[(len(clickToReady)-1)/2]
+	gap := median - b.TotalSeconds
+	if gap <= 0 {
+		return
+	}
+	for i := range b.Steps {
+		b.Steps[i].Seconds += gap
+	}
+	b.TotalSeconds = median
 }

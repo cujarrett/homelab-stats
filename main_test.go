@@ -206,6 +206,12 @@ func TestPlatform(t *testing.T) {
 			pod("guest-f", "guest-f-api-7bf58ccb7d-fsx48", "40"),
 			pod("guest-h", "guest-h-api-5d478c6578-abcde", "50"),
 		}},
+		{`launchpad_guest_ready_seconds`, []promResult{
+			{labels: map[string]string{"workspace": "guest-a", "demo": "api"}, value: "58"},
+			{labels: map[string]string{"workspace": "guest-b", "demo": "api"}, value: "60"},
+			{labels: map[string]string{"workspace": "guest-c", "demo": "api"}, value: "70"},
+			{labels: map[string]string{"workspace": "guest-e", "demo": "workflow"}, value: "44"},
+		}},
 	})
 	defer main.Close()
 
@@ -223,17 +229,19 @@ func TestPlatform(t *testing.T) {
 	if w == nil || w.Count != 8 || w.AverageSeconds != 37.6 {
 		t.Fatalf("workspaces = %+v, want 8 averaging (55+30+50+40+34+40+2+50)/8", w)
 	}
-	if w.Build.TotalSeconds != 55 {
-		t.Errorf("build total = %v, want the widest workspace at 55", w.Build.TotalSeconds)
+	// The widest build ends at 55s from its own resources. The median click to ready is 60s,
+	// so every step moves 5s later.
+	if w.Build.TotalSeconds != 60 {
+		t.Errorf("build total = %v, want the median click to ready of 60", w.Build.TotalSeconds)
 	}
 	want := []step{
-		{"Web app", "Spa", "pi", 1}, {"Access roles", "IAMRole", "aws", 6}, {"NoSQL table", "NoSql", "aws", 14},
-		{"Web app running", "Spa", "app", 16}, {"API running", "Api", "app", 55},
+		{"Web app", "Spa", "pi", 6}, {"Access roles", "IAMRole", "aws", 11}, {"NoSQL table", "NoSql", "aws", 19},
+		{"Web app running", "Spa", "app", 21}, {"API running", "Api", "app", 60},
 	}
 	if fmt.Sprint(w.Build.Steps) != fmt.Sprint(want) {
 		t.Errorf("steps = %v, want %v", w.Build.Steps, want)
 	}
-	wantFlow := []step{{"Durable workflow", "WorkflowSpace", "pi", 1}, {"API", "Api", "pi", 4}, {"Entra app", "EntraApp", "entra", 18}, {"API running", "Api", "app", 34}}
+	wantFlow := []step{{"Durable workflow", "WorkflowSpace", "pi", 11}, {"API", "Api", "pi", 14}, {"Entra app", "EntraApp", "entra", 28}, {"API running", "Api", "app", 44}}
 	if w.WorkflowBuild == nil || fmt.Sprint(w.WorkflowBuild.Steps) != fmt.Sprint(wantFlow) {
 		t.Errorf("workflow build = %+v, want guest-e's %v", w.WorkflowBuild, wantFlow)
 	}

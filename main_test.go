@@ -108,7 +108,7 @@ func TestCluster(t *testing.T) {
 		results []promResult
 	}{
 		{`avg_over_time`, one("99.99189814")},
-		{`up{job="node-exporter"} == 1) < 3`, one("1789872300")},
+		{`min(node_boot_time_seconds) < 300`, one("1789872300")},
 		{`probe_success{probe_group="internet"}) == 0`, nil},
 	})
 	defer avail.Close()

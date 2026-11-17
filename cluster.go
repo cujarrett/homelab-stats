@@ -241,8 +241,9 @@ func (s *server) availabilityStats(ctx context.Context) (availabilityStats, erro
 		d := time.Unix(int64(ts), 0).In(chicago).Format("2006-01-02")
 		return &d, nil
 	}
-	// Two samples in a row, matching availabilityUp. One node down plus one missed scrape is not a power cut.
-	if out.LastPower, err = day(`max_over_time((timestamp((count(up{job="node-exporter"} == 1) < 3) and (count(up{job="node-exporter"} offset 30s == 1) < 3)))[90d:30s])`); err != nil {
+	// Every node booting within five minutes is a power cut, the same rule as the ClusterPowerLoss alert.
+	// Rolling reboots and missed scrapes leave it alone.
+	if out.LastPower, err = day(`max_over_time((max(node_boot_time_seconds) and on() (max(node_boot_time_seconds) - min(node_boot_time_seconds) < 300))[90d:5m])`); err != nil {
 		return out, err
 	}
 	out.LastInternet, err = day(`max_over_time((timestamp(max(probe_success{probe_group="internet"}) == 0))[90d:30s])`)

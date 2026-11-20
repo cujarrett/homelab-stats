@@ -28,6 +28,7 @@ func main() {
 	s := &server{
 		main:         prometheus{base: envOr("PROMETHEUS_URL", "http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"), client: httpClient},
 		availability: prometheus{base: envOr("AVAILABILITY_PROMETHEUS_URL", "http://prometheus-cluster-availability.monitoring.svc.cluster.local:9090"), client: httpClient},
+		loki:         prometheus{base: envOr("LOKI_URL", "http://loki.monitoring.svc.cluster.local:3100") + "/loki", client: httpClient},
 		gist:         gist{url: "https://api.github.com/gists/" + envOr("STATS_GIST_ID", defaultGistID), client: httpClient},
 		cache:        newCache(),
 		now:          time.Now,
@@ -39,6 +40,7 @@ func main() {
 	mux.HandleFunc("GET /stats/cluster", s.clusterHandler)
 	mux.HandleFunc("GET /stats/platform", s.platformHandler)
 	mux.HandleFunc("GET /stats/automerge", s.automergeHandler)
+	mux.HandleFunc("GET /stats/attacks", s.attacksHandler)
 	mux.HandleFunc("/", notFoundHandler)
 
 	srv := &http.Server{
@@ -75,9 +77,11 @@ func envOr(key, fallback string) string {
 type server struct {
 	main         prometheus
 	availability prometheus
-	gist         gist
-	cache        *cache
-	now          func() time.Time
+	// Loki answers metric queries in the Prometheus response shape, under /loki.
+	loki  prometheus
+	gist  gist
+	cache *cache
+	now   func() time.Time
 }
 
 // Cache-Control: public and identical for every caller, so Cloudflare may hold it for a minute.
@@ -130,6 +134,18 @@ func (s *server) automergeHandler(w http.ResponseWriter, r *http.Request) {
 	v, at, err := s.cache.getAt(r.Context(), "automerge", 10*time.Minute, s.gist.automerge)
 	if err != nil {
 		slog.Error("automerge stats", "err", err)
+		writeJSONError(w, "stats are unavailable right now", http.StatusBadGateway)
+		return
+	}
+	writeStats(w, v, at)
+}
+
+func (s *server) attacksHandler(w http.ResponseWriter, r *http.Request) {
+	v, at, err := s.cache.getAt(r.Context(), "attacks", 5*time.Minute, func(ctx context.Context) (any, error) {
+		return s.attacks(ctx)
+	})
+	if err != nil {
+		slog.Error("attack stats", "err", err)
 		writeJSONError(w, "stats are unavailable right now", http.StatusBadGateway)
 		return
 	}

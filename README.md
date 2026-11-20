@@ -1,6 +1,6 @@
 # homelab-stats
 
-Read-only JSON for the homelab section on [mattjarrett.dev](https://mattjarrett.dev). Every number comes from a fixed list of Prometheus queries or the blog-stats gist, and nothing from a request reaches a query except the choice of range.
+Read-only JSON for the homelab section on [mattjarrett.dev](https://mattjarrett.dev). Every number comes from a fixed list of Prometheus and Loki queries or the blog-stats gist, and nothing from a request reaches a query except the choice of range.
 
 ## Commands
 
@@ -11,12 +11,13 @@ Read-only JSON for the homelab section on [mattjarrett.dev](https://mattjarrett.
 | `just test` | Run tests with race detector |
 | `just lint` | go mod tidy -diff + golangci-lint |
 
-To run against the cluster from a laptop, port-forward both Prometheus instances and point the app at them:
+To run against the cluster from a laptop, port-forward both Prometheus instances and Loki, and point the app at them:
 
 ```bash
 kubectl port-forward -n monitoring svc/monitoring-kube-prometheus-prometheus 19090:9090 &
 kubectl port-forward -n monitoring svc/prometheus-cluster-availability 19091:9090 &
-PROMETHEUS_URL=http://localhost:19090 AVAILABILITY_PROMETHEUS_URL=http://localhost:19091 just run
+kubectl port-forward -n monitoring svc/loki 13100:3100 &
+PROMETHEUS_URL=http://localhost:19090 AVAILABILITY_PROMETHEUS_URL=http://localhost:19091 LOKI_URL=http://localhost:13100 just run
 ```
 
 ## Endpoints
@@ -28,11 +29,16 @@ The site reaches these at `https://mattjarrett.dev/api/stats/...`. Its nginx for
 | `GET` | `/healthz` | | Readiness probe |
 | `GET` | `/stats/cluster?range=1d\|7d\|30d` | 1 min | Availability, outage dates, node, pod and app totals, CPU and memory per node, network and disk throughput |
 | `GET` | `/stats/platform` | 5 min | Platform resources running by type, and Launchpad workspace build times over 30 days |
+| `GET` | `/stats/attacks` | 5 min | Scanner probes against the public sites in the last 30 days: totals, probes per 12 hours, and the US cities they came from |
 | `GET` | `/stats/automerge` | 10 min | Dependency PR merges per day, automatic and by hand, from 30 days before automerge went live |
 
 A failed refresh serves the last good answer, so a Prometheus restart does not empty the section. Responses carry `Cache-Control: public, max-age=60` for Cloudflare.
 
 Outages are reported as a date only, and responses carry no guest workspace or pod names.
+
+The last outage is searched for across everything the archive keeps. With none on record, the response gives the first day the archive watched for one.
+
+Attack sources are reported as a city, with coordinates rounded to about 11 km. Responses carry no address, path or site.
 
 ## Environment variables
 
@@ -41,6 +47,7 @@ Outages are reported as a date only, and responses carry no guest workspace or p
 | `PORT` | No | `8080` | Listen port |
 | `PROMETHEUS_URL` | No | `http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090` | Main Prometheus |
 | `AVAILABILITY_PROMETHEUS_URL` | No | `http://prometheus-cluster-availability.monitoring.svc.cluster.local:9090` | Long-term availability archive |
+| `LOKI_URL` | No | `http://loki.monitoring.svc.cluster.local:3100` | Loki, for the Traefik access logs |
 | `STATS_GIST_ID` | No | `bae61e2f9258ad06f4f123b138803a4c` | Gist the [blog-stats workflow](https://github.com/cujarrett/github-exporter#blog-stats) writes |
 
 ## Deployment

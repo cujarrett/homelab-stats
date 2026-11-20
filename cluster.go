@@ -23,18 +23,21 @@ var clusterRanges = map[string]clusterRange{
 }
 
 type clusterStats struct {
-	Range              string     `json:"range"`
-	Availability30d    *float64   `json:"availability30d"`
-	LastPowerOutage    *string    `json:"lastPowerOutage"`
-	LastInternetOutage *string    `json:"lastInternetOutage"`
-	Nodes              nodeTotals `json:"nodes"`
-	Pods               int        `json:"pods"`
-	Apps               appTotals  `json:"apps"`
-	Timestamps         []int64    `json:"timestamps"`
-	PodSeries          []*float64 `json:"podSeries"`
-	PerNode            []nodeStat `json:"perNode"`
-	Network            network    `json:"network"`
-	Disk               disk       `json:"disk"`
+	Range              string   `json:"range"`
+	Availability30d    *float64 `json:"availability30d"`
+	LastPowerOutage    *string  `json:"lastPowerOutage"`
+	LastInternetOutage *string  `json:"lastInternetOutage"`
+	// Set only when no outage is on record: the first day the archive watched for one.
+	PowerWatchedSince    *string    `json:"powerWatchedSince"`
+	InternetWatchedSince *string    `json:"internetWatchedSince"`
+	Nodes                nodeTotals `json:"nodes"`
+	Pods                 int        `json:"pods"`
+	Apps                 appTotals  `json:"apps"`
+	Timestamps           []int64    `json:"timestamps"`
+	PodSeries            []*float64 `json:"podSeries"`
+	PerNode              []nodeStat `json:"perNode"`
+	Network              network    `json:"network"`
+	Disk                 disk       `json:"disk"`
 }
 
 type nodeTotals struct {
@@ -70,10 +73,17 @@ type disk struct {
 }
 
 type availabilityStats struct {
-	Percent30d   *float64
-	LastPower    *string
-	LastInternet *string
+	Percent30d           *float64
+	LastPower            *string
+	LastInternet         *string
+	PowerWatchedSince    *string
+	InternetWatchedSince *string
 }
+
+// Tried in order, and the first window with an outage answers.
+// 90d: most outages are recent, and this scan is quick.
+// 1825d: everything the archive keeps.
+var outageWindows = []string{"90d", "1825d"}
 
 // Matches the cluster-availability dashboard: up when at least 3 of 4 nodes answer
 // and the internet probe succeeds. The offset term forgives a single missed scrape.
@@ -92,6 +102,7 @@ func (s *server) cluster(ctx context.Context, key string, rng clusterRange) (clu
 	})
 	if a, ok := avail.(availabilityStats); ok && err == nil {
 		out.Availability30d, out.LastPowerOutage, out.LastInternetOutage = a.Percent30d, a.LastPower, a.LastInternet
+		out.PowerWatchedSince, out.InternetWatchedSince = a.PowerWatchedSince, a.InternetWatchedSince
 	}
 
 	m := s.main
@@ -241,12 +252,27 @@ func (s *server) availabilityStats(ctx context.Context) (availabilityStats, erro
 		d := time.Unix(int64(ts), 0).In(chicago).Format("2006-01-02")
 		return &d, nil
 	}
+	// expr takes the window to search. signal is the series the outage is read from.
+	last := func(expr, signal string) (lastDay, watchedSince *string, err error) {
+		for _, window := range outageWindows {
+			if lastDay, err = day(fmt.Sprintf(expr, window)); lastDay != nil || err != nil {
+				return lastDay, nil, err
+			}
+		}
+		watchedSince, err = day(`min(min_over_time(timestamp(` + signal + `)[1825d:1h]))`)
+		return nil, watchedSince, err
+	}
 	// Every node booting within five minutes is a power cut, the same rule as the ClusterPowerLoss alert.
 	// Rolling reboots and missed scrapes leave it alone.
-	if out.LastPower, err = day(`max_over_time((max(node_boot_time_seconds) and on() (max(node_boot_time_seconds) - min(node_boot_time_seconds) < 300))[90d:5m])`); err != nil {
+	out.LastPower, out.PowerWatchedSince, err = last(
+		`max_over_time((max(node_boot_time_seconds) and on() (max(node_boot_time_seconds) - min(node_boot_time_seconds) < 300))[%s:5m])`,
+		`node_boot_time_seconds`)
+	if err != nil {
 		return out, err
 	}
-	out.LastInternet, err = day(`max_over_time((timestamp(max(probe_success{probe_group="internet"}) == 0))[90d:30s])`)
+	out.LastInternet, out.InternetWatchedSince, err = last(
+		`max_over_time((timestamp(max(probe_success{probe_group="internet"}) == 0))[%s:30s])`,
+		`probe_success{probe_group="internet"}`)
 	return out, err
 }
 

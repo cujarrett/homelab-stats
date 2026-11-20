@@ -62,6 +62,7 @@ func testServer(main, avail, gistURL string) *server {
 	return &server{
 		main:         prometheus{base: main, client: c},
 		availability: prometheus{base: avail, client: c},
+		loki:         prometheus{base: main, client: c},
 		gist:         gist{url: gistURL, client: c},
 		cache:        newCache(),
 		now:          func() time.Time { return time.Unix(1792300000, 0) },
@@ -110,6 +111,7 @@ func TestCluster(t *testing.T) {
 		{`avg_over_time`, one("99.99189814")},
 		{`min(node_boot_time_seconds) < 300`, one("1789872300")},
 		{`probe_success{probe_group="internet"}) == 0`, nil},
+		{`timestamp(probe_success{probe_group="internet"})`, one("1784606400")},
 	})
 	defer avail.Close()
 
@@ -138,7 +140,14 @@ func TestCluster(t *testing.T) {
 		t.Errorf("last power outage = %v, want the Chicago date 2026-09-19", got.LastPowerOutage)
 	}
 	if got.LastInternetOutage != nil {
-		t.Errorf("last internet outage = %v, want null with no outage in range", *got.LastInternetOutage)
+		t.Errorf("last internet outage = %v, want null with no outage on record", *got.LastInternetOutage)
+	}
+	// 1784606400 is 2026-07-20 23:00 in Chicago.
+	if got.InternetWatchedSince == nil || *got.InternetWatchedSince != "2026-07-20" {
+		t.Errorf("internet watched since = %v, want the archive's first day 2026-07-20", got.InternetWatchedSince)
+	}
+	if got.PowerWatchedSince != nil {
+		t.Errorf("power watched since = %v, want null when an outage is on record", *got.PowerWatchedSince)
 	}
 	if got.Nodes != (nodeTotals{Ready: 4, Total: 4, Cores: 16, MemoryBytes: 42e9}) || got.Pods != 145 || got.Apps != (appTotals{Synced: 44, Total: 45}) {
 		t.Errorf("totals = %+v pods %d apps %+v", got.Nodes, got.Pods, got.Apps)
@@ -160,6 +169,50 @@ func TestCluster(t *testing.T) {
 	}
 	if *got.PerNode[1].CPU[0] != 12.35 || *got.PerNode[1].TemperatureC != 41.46 {
 		t.Errorf("work-1 cpu %v temp %v, want values rounded to 2 places", *got.PerNode[1].CPU[0], *got.PerNode[1].TemperatureC)
+	}
+}
+
+func TestAttacks(t *testing.T) {
+	loki := fakeProm(t, []struct {
+		match   string
+		results []promResult
+	}{
+		{"sum by (city, region, lat, lon)", []promResult{
+			{labels: map[string]string{"city": "Dallas", "region": "TX", "lat": "32.78306", "lon": "-96.80667"}, value: "2"},
+			{labels: map[string]string{"city": "Dallas", "region": "TX", "lat": "32.81", "lon": "-96.84"}, value: "1"},
+			{labels: map[string]string{"city": "", "region": "", "lat": "", "lon": ""}, value: "1"},
+			{labels: map[string]string{"city": "visit evil.example/now", "region": "TX", "lat": "32.8", "lon": "-96.8"}, value: "1"},
+		}},
+		{"count(sum by (visitor)", one("14")},
+	})
+	defer loki.Close()
+
+	s := testServer(loki.URL, loki.URL, "")
+	rec := httptest.NewRecorder()
+	s.attacksHandler(rec, httptest.NewRequest(http.MethodGet, "/stats/attacks", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %s", rec.Code, rec.Body.String())
+	}
+	var got attackStats
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Timestamps) != 60 || len(got.Series) != 60 {
+		t.Fatalf("buckets = %d timestamps, %d series, want 60 for 30 days", len(got.Timestamps), len(got.Series))
+	}
+	// Five probes in each of 60 buckets. One has no location, and one has a city that is no place name.
+	if got.Probes != 300 || got.Series[0] != 5 || got.Sources != 14 {
+		t.Errorf("probes = %d, series[0] = %d, sources = %d", got.Probes, got.Series[0], got.Sources)
+	}
+	if len(got.Places) != 1 {
+		t.Fatalf("places = %+v, want the two Dallas series merged, and the blank and forged ones left out", got.Places)
+	}
+	p := got.Places[0]
+	if p.City != "Dallas" || p.Lat != 32.8 || p.Lon != -96.8 {
+		t.Errorf("place = %+v, want Dallas rounded to one decimal", p)
+	}
+	if len(p.Hits) != 60 || p.Hits[0] != [2]int{0, 3} || p.Hits[59] != [2]int{59, 3} {
+		t.Errorf("hits = %v", p.Hits)
 	}
 }
 

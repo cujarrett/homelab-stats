@@ -19,6 +19,17 @@ const probeFilter = `{log_type=~"access|sandbox"}` +
 	` | (path=~"(?i).*(/\\.[a-z_]|\\.(sql|bak|old|swp|save|tfstate|tfvars)|phpinfo|wp-config|xmlrpc\\.php|wlwmanifest).*" or (host!~"(kentjarrett|mattjarrett)\\.com" and path=~"(?i).*(\\.php|/wp-).*"))` +
 	` | path!~"/\\.(well-known|ghost)/.*"`
 
+// Sorts each probe into one kind of file by its path, first match wins.
+// The kinds are fixed words from this template, so no text a scanner typed reaches the page.
+const probeKind = ` | label_format kind="{{ $p := lower .path }}` +
+	`{{ if contains \"/.env\" $p }}env` +
+	`{{ else if contains \"/.git\" $p }}git` +
+	`{{ else if or (contains \"/.aws\" $p) (contains \"/.ssh\" $p) (contains \"gcloud\" $p) (contains \"credentials\" $p) (contains \"/.docker\" $p) (contains \".npmrc\" $p) (contains \".netrc\" $p) (contains \".pypirc\" $p) (contains \".boto\" $p) (contains \"htpasswd\" $p) }}keys` +
+	`{{ else if or (contains \"wp-\" $p) (contains \"wlwmanifest\" $p) (contains \"xmlrpc\" $p) }}wordpress` +
+	`{{ else if or (contains \".sql\" $p) (contains \".bak\" $p) (contains \".old\" $p) (contains \".swp\" $p) (contains \".save\" $p) (contains \"tfstate\" $p) (contains \"tfvars\" $p) }}backup` +
+	`{{ else if contains \".php\" $p }}php` +
+	`{{ else }}other{{ end }}"`
+
 // The page shows the last 30 days, in buckets of 12 hours.
 const (
 	attackSpan = 30 * 24 * time.Hour
@@ -33,6 +44,13 @@ type attackStats struct {
 	Timestamps []int64       `json:"timestamps"`
 	Series     []int         `json:"series"`
 	Places     []attackPlace `json:"places"`
+	// Kinds: probes by the kind of file asked for, most asked first.
+	Kinds []attackKind `json:"kinds"`
+}
+
+type attackKind struct {
+	Kind  string `json:"kind"`
+	Count int    `json:"count"`
 }
 
 type attackPlace struct {
@@ -45,7 +63,7 @@ type attackPlace struct {
 }
 
 func (s *server) attacks(ctx context.Context) (attackStats, error) {
-	out := attackStats{Places: []attackPlace{}}
+	out := attackStats{Places: []attackPlace{}, Kinds: []attackKind{}}
 
 	// Loki evaluates on multiples of the step, so the grid sits on them too.
 	// The last bucket ends in the future, which keeps the newest probes in it.
@@ -114,6 +132,21 @@ func (s *server) attacks(ctx context.Context) (attackStats, error) {
 	sources, _, err := s.loki.scalar(ctx,
 		fmt.Sprintf(`count(sum by (visitor) (count_over_time(%s [%ds])))`, probeFilter, int(attackSpan.Seconds())))
 	out.Sources = int(sources)
+	if err != nil {
+		return out, err
+	}
+
+	kinds, err := s.loki.query(ctx,
+		fmt.Sprintf(`sum by (kind) (count_over_time(%s%s [%ds]))`, probeFilter, probeKind, int(attackSpan.Seconds())))
+	for _, k := range kinds {
+		out.Kinds = append(out.Kinds, attackKind{Kind: k.labels["kind"], Count: int(k.value)})
+	}
+	sort.Slice(out.Kinds, func(a, b int) bool {
+		if out.Kinds[a].Count != out.Kinds[b].Count {
+			return out.Kinds[a].Count > out.Kinds[b].Count
+		}
+		return out.Kinds[a].Kind < out.Kinds[b].Kind
+	})
 	return out, err
 }
 

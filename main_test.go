@@ -184,6 +184,10 @@ func TestAttacks(t *testing.T) {
 			{labels: map[string]string{"city": "visit evil.example/now", "region": "TX", "lat": "32.8", "lon": "-96.8"}, value: "1"},
 		}},
 		{"count(sum by (visitor)", one("14")},
+		{"sum by (kind)", []promResult{
+			{labels: map[string]string{"kind": "git"}, value: "7"},
+			{labels: map[string]string{"kind": "env"}, value: "50"},
+		}},
 	})
 	defer loki.Close()
 
@@ -203,6 +207,9 @@ func TestAttacks(t *testing.T) {
 	// Five probes in each of 60 buckets. One has no location, and one has a city that is no place name.
 	if got.Probes != 300 || got.Series[0] != 5 || got.Sources != 14 {
 		t.Errorf("probes = %d, series[0] = %d, sources = %d", got.Probes, got.Series[0], got.Sources)
+	}
+	if len(got.Kinds) != 2 || got.Kinds[0] != (attackKind{Kind: "env", Count: 50}) || got.Kinds[1].Kind != "git" {
+		t.Errorf("kinds = %+v, want env then git", got.Kinds)
 	}
 	if len(got.Places) != 1 {
 		t.Fatalf("places = %+v, want the two Dallas series merged, and the blank and forged ones left out", got.Places)

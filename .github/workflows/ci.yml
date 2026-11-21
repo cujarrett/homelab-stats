@@ -41,7 +41,5 @@ jobs:
     needs: build-and-push
     if: github.ref == 'refs/heads/main'
     uses: cujarrett/homelab-workspaces/.github/workflows/update-image-tag.yml@main
-    with:
-      namespace: mattjarrett-dev
     secrets:
       app_private_key: ${{ secrets.HOMELAB_WORKSPACES_APP_KEY }}

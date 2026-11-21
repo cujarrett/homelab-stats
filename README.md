@@ -52,4 +52,4 @@ Attack sources are reported as a city, with coordinates rounded to about 11 km. 
 
 ## Deployment
 
-Runs on the homelab cluster as an `Api` in the `mattjarrett-dev` workspace, beside the site that proxies to it. Image: `ghcr.io/cujarrett/homelab-stats`. ARM64.
+Runs on the homelab cluster as an `Api` in the `homelab-stats` workspace. mattjarrett.dev and jerks.mattjarrett.dev proxy to it. Image: `ghcr.io/cujarrett/homelab-stats`. ARM64.

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -357,6 +358,33 @@ func TestCacheServesStaleOnError(t *testing.T) {
 	if _, err := c.get(context.Background(), "other", time.Minute, fail); err == nil {
 		t.Error("a key with nothing cached should return the error")
 	}
+}
+
+func TestCacheRefreshesInBackground(t *testing.T) {
+	c := newCache()
+	var mu sync.Mutex
+	now := time.Unix(0, 0)
+	c.now = func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+	v1 := func(context.Context) (any, error) { return "old", nil }
+	v2 := func(context.Context) (any, error) { return "new", nil }
+
+	if _, err := c.get(context.Background(), "k", time.Minute, v1); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	now = now.Add(2 * time.Minute)
+	mu.Unlock()
+	if v, _ := c.get(context.Background(), "k", time.Minute, v2); v != "old" {
+		t.Fatalf("expired get = %v, want the old value without waiting", v)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if v, _ := c.get(context.Background(), "k", time.Minute, v2); v == "new" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Error("the background refresh never replaced the old value")
 }
 
 func TestMetricsEndpoint(t *testing.T) {

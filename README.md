@@ -29,7 +29,7 @@ The site reaches these at `https://mattjarrett.dev/api/stats/...`. Its nginx for
 | `GET` | `/healthz` | | Readiness probe |
 | `GET` | `/stats/cluster?range=1d\|7d\|30d` | 1 min | Availability, outage dates, node, pod and app totals, CPU and memory per node, network and disk throughput |
 | `GET` | `/stats/platform` | 5 min | Platform resources running by type, and Launchpad workspace build times over 30 days |
-| `GET` | `/stats/attacks` | 5 min | Scanner probes against the public sites in the last 30 days: totals, probes per 12 hours, the US cities they came from, and the kinds of file they asked for |
+| `GET` | `/stats/attacks` | 5 min | Scanner probes against the public sites in the last 30 days: totals, probes per 12 hours, the US cities they came from, the kinds of file they asked for, and which wall answered them |
 | `GET` | `/stats/automerge` | 10 min | Dependency PR merges per day, automatic and by hand, from 30 days before automerge went live |
 
 A failed refresh serves the last good answer, so a Prometheus restart does not empty the section. Responses carry `Cache-Control: public, max-age=60` for Cloudflare.

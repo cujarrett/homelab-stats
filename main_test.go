@@ -189,6 +189,10 @@ func TestAttacks(t *testing.T) {
 			{labels: map[string]string{"kind": "git"}, value: "7"},
 			{labels: map[string]string{"kind": "env"}, value: "50"},
 		}},
+		{"sum by (wall)", []promResult{
+			{labels: map[string]string{"wall": "gateway"}, value: "9"},
+			{labels: map[string]string{"wall": "web"}, value: "48"},
+		}},
 	})
 	defer loki.Close()
 
@@ -211,6 +215,9 @@ func TestAttacks(t *testing.T) {
 	}
 	if len(got.Kinds) != 2 || got.Kinds[0] != (attackKind{Kind: "env", Count: 50}) || got.Kinds[1].Kind != "git" {
 		t.Errorf("kinds = %+v, want env then git", got.Kinds)
+	}
+	if len(got.Walls) != 2 || got.Walls[0] != (attackWall{Wall: "web", Count: 48}) || got.Walls[1].Wall != "gateway" {
+		t.Errorf("walls = %+v, want web then gateway", got.Walls)
 	}
 	if len(got.Places) != 1 {
 		t.Fatalf("places = %+v, want the two Dallas series merged, and the blank and forged ones left out", got.Places)

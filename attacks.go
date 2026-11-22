@@ -30,6 +30,12 @@ const probeKind = ` | label_format kind="{{ $p := lower .path }}` +
 	`{{ else if contains \".php\" $p }}php` +
 	`{{ else }}other{{ end }}"`
 
+// Sorts each probe by the wall that answered it.
+// gateway: 429 is the rate limit, and 503 is a route with no site behind it.
+// web: every other answer comes from the site's own web server.
+const probeWall = ` | json status="DownstreamStatus"` +
+	` | label_format wall="{{ if or (eq .status \"429\") (eq .status \"503\") }}gateway{{ else }}web{{ end }}"`
+
 // The page shows the last 30 days, in buckets of 12 hours.
 const (
 	attackSpan = 30 * 24 * time.Hour
@@ -46,6 +52,13 @@ type attackStats struct {
 	Places     []attackPlace `json:"places"`
 	// Kinds: probes by the kind of file asked for, most asked first.
 	Kinds []attackKind `json:"kinds"`
+	// Walls: probes by the wall that answered them, busiest first.
+	Walls []attackWall `json:"walls"`
+}
+
+type attackWall struct {
+	Wall  string `json:"wall"`
+	Count int    `json:"count"`
 }
 
 type attackKind struct {
@@ -63,7 +76,7 @@ type attackPlace struct {
 }
 
 func (s *server) attacks(ctx context.Context) (attackStats, error) {
-	out := attackStats{Places: []attackPlace{}, Kinds: []attackKind{}}
+	out := attackStats{Places: []attackPlace{}, Kinds: []attackKind{}, Walls: []attackWall{}}
 
 	// Loki evaluates on multiples of the step, so the grid sits on them too.
 	// The last bucket ends in the future, which keeps the newest probes in it.
@@ -146,6 +159,21 @@ func (s *server) attacks(ctx context.Context) (attackStats, error) {
 			return out.Kinds[a].Count > out.Kinds[b].Count
 		}
 		return out.Kinds[a].Kind < out.Kinds[b].Kind
+	})
+	if err != nil {
+		return out, err
+	}
+
+	walls, err := s.loki.query(ctx,
+		fmt.Sprintf(`sum by (wall) (count_over_time(%s%s [%ds]))`, probeFilter, probeWall, int(attackSpan.Seconds())))
+	for _, w := range walls {
+		out.Walls = append(out.Walls, attackWall{Wall: w.labels["wall"], Count: int(w.value)})
+	}
+	sort.Slice(out.Walls, func(a, b int) bool {
+		if out.Walls[a].Count != out.Walls[b].Count {
+			return out.Walls[a].Count > out.Walls[b].Count
+		}
+		return out.Walls[a].Wall < out.Walls[b].Wall
 	})
 	return out, err
 }

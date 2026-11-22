@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"regexp"
 	"sort"
@@ -33,6 +35,7 @@ const probeKind = ` | label_format kind="{{ $p := lower .path }}` +
 // Sorts each probe by the wall that answered it.
 // gateway: 429 is the rate limit, and 503 is a route with no site behind it.
 // web: every other answer comes from the site's own web server.
+// waf: not from these logs. Cloudflare counts the requests it stopped before they got here.
 const probeWall = ` | json status="DownstreamStatus"` +
 	` | label_format wall="{{ if or (eq .status \"429\") (eq .status \"503\") }}gateway{{ else }}web{{ end }}"`
 
@@ -71,6 +74,8 @@ type attackPlace struct {
 	Region string  `json:"region"`
 	Lat    float64 `json:"lat"`
 	Lon    float64 `json:"lon"`
+	// Edge: a Cloudflare data centre that stopped requests, not a city they came from.
+	Edge bool `json:"edge,omitempty"`
 	// Each hit is a bucket index and the probes in that bucket, oldest first.
 	Hits [][2]int `json:"hits"`
 }
@@ -89,6 +94,13 @@ func (s *server) attacks(ctx context.Context) (attackStats, error) {
 		out.Timestamps = append(out.Timestamps, min(ts.Unix(), now.Unix()))
 	}
 	out.Series = make([]int, len(out.Timestamps))
+
+	// A Cloudflare outage leaves the WAF out, and the rest of the answer still serves.
+	// The window starts where the first bucket does, and Cloudflare allows 30 days at most.
+	edge, cfErr := s.cloudflare.blocked(ctx, start.Add(-attackStep), now)
+	if cfErr != nil && !errors.Is(cfErr, errNoToken) {
+		slog.Warn("cloudflare blocked count", "err", cfErr)
+	}
 
 	byPlace, err := s.loki.queryRange(ctx,
 		fmt.Sprintf(`sum by (city, region, lat, lon) (count_over_time(%s [%ds]))`, probeFilter, int(attackStep.Seconds())),
@@ -128,6 +140,33 @@ func (s *server) attacks(ctx context.Context) (attackStats, error) {
 			}
 		}
 	}
+	// Edge blocks go in the bucket that holds their hour, at the city of the data centre that stopped them.
+	edgeTotal := 0
+	for _, b := range edge {
+		end := b.Hour.Add(time.Hour)
+		bucketEnd := end.Truncate(attackStep)
+		if bucketEnd.Before(end) {
+			bucketEnd = bucketEnd.Add(attackStep)
+		}
+		i, ok := index[bucketEnd.Unix()]
+		if !ok {
+			continue
+		}
+		out.Series[i] += b.Count
+		out.Probes += b.Count
+		edgeTotal += b.Count
+		at, ok := colos[b.Colo]
+		if !ok {
+			continue
+		}
+		// Kept apart from an attacker city of the same name, because this is where Cloudflare stopped them.
+		id := "edge:" + at.City + "," + at.Region
+		if places[id] == nil {
+			places[id] = &place{attackPlace: at, buckets: map[int]int{}}
+		}
+		places[id].buckets[i] += b.Count
+	}
+
 	for _, p := range places {
 		for i, n := range p.buckets {
 			p.Hits = append(p.Hits, [2]int{i, n})
@@ -136,6 +175,9 @@ func (s *server) attacks(ctx context.Context) (attackStats, error) {
 		out.Places = append(out.Places, p.attackPlace)
 	}
 	sort.Slice(out.Places, func(a, b int) bool {
+		if out.Places[a].Edge != out.Places[b].Edge {
+			return !out.Places[a].Edge
+		}
 		if out.Places[a].City != out.Places[b].City {
 			return out.Places[a].City < out.Places[b].City
 		}
@@ -168,6 +210,9 @@ func (s *server) attacks(ctx context.Context) (attackStats, error) {
 		fmt.Sprintf(`sum by (wall) (count_over_time(%s%s [%ds]))`, probeFilter, probeWall, int(attackSpan.Seconds())))
 	for _, w := range walls {
 		out.Walls = append(out.Walls, attackWall{Wall: w.labels["wall"], Count: int(w.value)})
+	}
+	if edgeTotal > 0 {
+		out.Walls = append(out.Walls, attackWall{Wall: "waf", Count: edgeTotal})
 	}
 	sort.Slice(out.Walls, func(a, b int) bool {
 		if out.Walls[a].Count != out.Walls[b].Count {

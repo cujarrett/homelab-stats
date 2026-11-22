@@ -29,7 +29,7 @@ The site reaches these at `https://mattjarrett.dev/api/stats/...`. Its nginx for
 | `GET` | `/healthz` | | Readiness probe |
 | `GET` | `/stats/cluster?range=1d\|7d\|30d` | 1 min | Availability, outage dates, node, pod and app totals, CPU and memory per node, network and disk throughput |
 | `GET` | `/stats/platform` | 5 min | Platform resources running by type, and Launchpad workspace build times over 30 days |
-| `GET` | `/stats/attacks` | 5 min | Scanner probes against the public sites in the last 30 days: totals, probes per 12 hours, the US cities they came from, the kinds of file they asked for, and which wall answered them |
+| `GET` | `/stats/attacks` | 5 min | Scanner probes against the public sites in the last 30 days: totals, probes per 12 hours, the US cities they came from, the kinds of file they asked for, and which wall answered them, including the requests Cloudflare stopped first |
 | `GET` | `/stats/automerge` | 10 min | Dependency PR merges per day, automatic and by hand, from 30 days before automerge went live |
 
 A failed refresh serves the last good answer, so a Prometheus restart does not empty the section. Responses carry `Cache-Control: public, max-age=60` for Cloudflare.
@@ -48,6 +48,8 @@ Attack sources are reported as a city, with coordinates rounded to about 11 km. 
 | `PROMETHEUS_URL` | No | `http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090` | Main Prometheus |
 | `AVAILABILITY_PROMETHEUS_URL` | No | `http://prometheus-cluster-availability.monitoring.svc.cluster.local:9090` | Long-term availability archive |
 | `LOKI_URL` | No | `http://loki.monitoring.svc.cluster.local:3100` | Loki, for the Traefik access logs |
+| `CLOUDFLARE_TOKEN_FILE` | No | `/secrets/cloudflare-token/CLOUDFLARE_TOKEN` | Cloudflare token with Zone Analytics Read. With no file, the attacks answer has no WAF count |
+| `CLOUDFLARE_API_URL` | No | `https://api.cloudflare.com/client/v4` | Cloudflare API |
 | `STATS_GIST_ID` | No | `bae61e2f9258ad06f4f123b138803a4c` | Gist the [blog-stats workflow](https://github.com/cujarrett/github-exporter#blog-stats) writes |
 
 ## Deployment

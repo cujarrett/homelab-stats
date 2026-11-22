@@ -30,8 +30,13 @@ func main() {
 		availability: prometheus{base: envOr("AVAILABILITY_PROMETHEUS_URL", "http://prometheus-cluster-availability.monitoring.svc.cluster.local:9090"), client: httpClient},
 		loki:         prometheus{base: envOr("LOKI_URL", "http://loki.monitoring.svc.cluster.local:3100") + "/loki", client: httpClient},
 		gist:         gist{url: "https://api.github.com/gists/" + envOr("STATS_GIST_ID", defaultGistID), client: httpClient},
-		cache:        newCache(),
-		now:          time.Now,
+		cloudflare: cloudflare{
+			base:      envOr("CLOUDFLARE_API_URL", "https://api.cloudflare.com/client/v4"),
+			tokenFile: envOr("CLOUDFLARE_TOKEN_FILE", "/secrets/cloudflare-token/CLOUDFLARE_TOKEN"),
+			client:    httpClient,
+		},
+		cache: newCache(),
+		now:   time.Now,
 	}
 
 	mux := http.NewServeMux()
@@ -78,10 +83,11 @@ type server struct {
 	main         prometheus
 	availability prometheus
 	// Loki answers metric queries in the Prometheus response shape, under /loki.
-	loki  prometheus
-	gist  gist
-	cache *cache
-	now   func() time.Time
+	loki       prometheus
+	gist       gist
+	cloudflare cloudflare
+	cache      *cache
+	now        func() time.Time
 }
 
 // Cache-Control: public and identical for every caller, so Cloudflare may hold it for a minute.

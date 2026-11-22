@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -65,6 +67,7 @@ func testServer(main, avail, gistURL string) *server {
 		availability: prometheus{base: avail, client: c},
 		loki:         prometheus{base: main, client: c},
 		gist:         gist{url: gistURL, client: c},
+		cloudflare:   cloudflare{tokenFile: "/nonexistent/token", client: c},
 		cache:        newCache(),
 		now:          func() time.Time { return time.Unix(1792300000, 0) },
 	}
@@ -400,5 +403,68 @@ func TestMetricsEndpoint(t *testing.T) {
 	metricsHandler(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	if !strings.Contains(rec.Body.String(), `homelab_stats_stale_served_total{key="cluster-1d"}`) {
 		t.Fatalf("missing stale counter: %s", rec.Body.String())
+	}
+}
+
+func TestAttacksCountsCloudflareBlocks(t *testing.T) {
+	loki := fakeProm(t, []struct {
+		match   string
+		results []promResult
+	}{
+		{"sum by (wall)", []promResult{{labels: map[string]string{"wall": "web"}, value: "48"}}},
+	})
+	defer loki.Close()
+
+	var auth, query string
+	cf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+		if r.URL.Path == "/zones" {
+			w.Write([]byte(`{"result":[{"id":"a"},{"id":"b"}]}`)) //nolint:errcheck
+			return
+		}
+		var body struct {
+			Query string `json:"query"`
+		}
+		json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
+		query = body.Query
+		// One zone stopped 70 at Ashburn and 20 at a data centre with no place, the other 30 at Ashburn an hour later.
+		w.Write([]byte(`{"data":{"viewer":{"zones":[` + //nolint:errcheck
+			`{"httpRequestsAdaptiveGroups":[{"count":70,"dimensions":{"datetimeHour":"2026-10-17T08:00:00Z","coloCode":"IAD"}},{"count":20,"dimensions":{"datetimeHour":"2026-10-17T08:00:00Z","coloCode":"NRT"}}]},` +
+			`{"httpRequestsAdaptiveGroups":[{"count":30,"dimensions":{"datetimeHour":"2026-10-17T09:00:00Z","coloCode":"IAD"}}]}]}}}`))
+	}))
+	defer cf.Close()
+
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(tokenFile, []byte("secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := testServer(loki.URL, loki.URL, "")
+	s.cloudflare = cloudflare{base: cf.URL, tokenFile: tokenFile, client: cf.Client()}
+
+	got, err := s.attacks(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Walls) != 2 || got.Walls[0] != (attackWall{Wall: "waf", Count: 120}) {
+		t.Errorf("walls = %+v, want the WAF's 120 from both zones first", got.Walls)
+	}
+	// The fake Loki sends no places, so every probe here is from the edge.
+	if got.Probes != 120 {
+		t.Errorf("probes = %d, want the edge blocks in the total", got.Probes)
+	}
+	var ashburn *attackPlace
+	for i := range got.Places {
+		if got.Places[i].City == "Ashburn" && got.Places[i].Edge {
+			ashburn = &got.Places[i]
+		}
+	}
+	if ashburn == nil || len(ashburn.Hits) != 1 || ashburn.Hits[0][1] != 100 {
+		t.Errorf("places = %+v, want both Ashburn hours in one 12-hour bucket, and nothing for the unknown data centre", got.Places)
+	}
+	if auth != "Bearer secret" {
+		t.Errorf("authorization = %q, want the token with its newline trimmed", auth)
+	}
+	if !strings.Contains(query, `clientCountryName: "US"`) {
+		t.Errorf("query = %s, want US only to match the map", query)
 	}
 }

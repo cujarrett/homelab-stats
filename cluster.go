@@ -262,10 +262,10 @@ func (s *server) availabilityStats(ctx context.Context) (availabilityStats, erro
 		watchedSince, err = day(`min(min_over_time(timestamp(` + signal + `)[1825d:1h]))`)
 		return nil, watchedSince, err
 	}
-	// Every node booting within five minutes is a power cut, the same rule as the ClusterPowerLoss alert.
-	// Rolling reboots and missed scrapes leave it alone.
+	// All four nodes booting within five minutes is a power cut, the same rule as the ClusterPowerLoss alert.
+	// The count of four stops a node-exporter rollout from matching while only one node reports.
 	out.LastPower, out.PowerWatchedSince, err = last(
-		`max_over_time((max(node_boot_time_seconds) and on() (max(node_boot_time_seconds) - min(node_boot_time_seconds) < 300))[%s:5m])`,
+		`max_over_time((max(node_boot_time_seconds) and on() (max(node_boot_time_seconds) - min(node_boot_time_seconds) < 300) and on() (count(max by (instance) (node_boot_time_seconds)) >= 4))[%s:5m])`,
 		`node_boot_time_seconds`)
 	if err != nil {
 		return out, err
